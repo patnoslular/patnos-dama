@@ -45,13 +45,11 @@ const App: React.FC = () => {
     if (!piece) return false;
     const rowDiff = tr - sr;
     const colDiff = tc - sc;
-    const absRowDiff = Math.abs(rowDiff);
-    const absColDiff = Math.abs(colDiff);
 
     if (piece.isDama) {
       if (sr !== tr && sc !== tc) return false;
-      const rStep = sr === tr ? 0 : rowDiff / absRowDiff;
-      const cStep = sc === tc ? 0 : colDiff / absColDiff;
+      const rStep = sr === tr ? 0 : (tr - sr) / Math.abs(tr - sr);
+      const cStep = sc === tc ? 0 : (tc - sc) / Math.abs(tc - sc);
       let piecesInBetween = 0;
       let currR = sr + rStep; let currC = sc + cStep;
       while (currR !== tr || currC !== tc) {
@@ -64,8 +62,8 @@ const App: React.FC = () => {
       return piecesInBetween <= 1;
     } else {
       const forward = piece.player === 'white' ? -1 : 1;
-      if (absColDiff + absRowDiff === 1) return rowDiff === forward || (absColDiff === 1 && rowDiff === 0);
-      if ((absRowDiff === 2 && absColDiff === 0 && rowDiff === 2 * forward) || (absColDiff === 2 && absRowDiff === 0)) {
+      if (Math.abs(colDiff) + Math.abs(rowDiff) === 1) return rowDiff === forward || (Math.abs(colDiff) === 1 && rowDiff === 0);
+      if ((Math.abs(rowDiff) === 2 && colDiff === 0 && rowDiff === 2 * forward) || (Math.abs(colDiff) === 2 && rowDiff === 0)) {
         const midR = sr + rowDiff / 2; const midC = sc + colDiff / 2;
         return board[midR][midC] !== null && board[midR][midC]?.player !== piece.player;
       }
@@ -96,24 +94,24 @@ const App: React.FC = () => {
   };
 
   return (
-    <div style={{ width: '100vw', height: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', backgroundColor: '#1a1a1a', margin: 0, padding: 0 }}>
-      <h2 style={{ color: 'white', fontFamily: 'Arial' }}>Sıra: {turn === 'white' ? 'Beyaz' : 'Siyah'}</h2>
+    <div style={{ width: '100vw', height: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', backgroundColor: '#1a1a1a', margin: 0 }}>
+      <h2 style={{ color: 'white', fontFamily: 'sans-serif' }}>Sıra: {turn === 'white' ? 'Beyaz' : 'Siyah'}</h2>
       <div style={{ display: 'grid', gridTemplateColumns: `repeat(${BOARD_SIZE}, 1fr)`, width: 'min(95vw, 400px)', height: 'min(95vw, 400px)', border: '4px solid #333' }}>
         {board.map((row, r) => row.map((piece, c) => (
-          <div key={`${r}-${c}`} onClick={() => handleSquareClick(r, c)} style={{ backgroundColor: (r + c) % 2 === 0 ? '#f0d9b5' : '#b58863', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+          <div key={`${r}-${c}`} onClick={() => handleSquareClick(r, c)} style={{ backgroundColor: (r + c) % 2 === 0 ? '#f0d9b5' : '#b58863', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             {piece && (
               <div style={{
                 width: '80%', height: '80%', borderRadius: '50%',
                 backgroundColor: piece.player === 'white' ? '#fff' : '#000',
                 border: selected?.[0] === r && selected?.[1] === c ? '4px solid #3498db' : '2px solid #555',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                color: piece.player === 'white' ? '#000' : '#fff', fontWeight: 'bold', fontFamily: 'Arial'
+                color: piece.player === 'white' ? '#000' : '#fff', fontWeight: 'bold'
               }}>{piece.isDama ? 'D' : ''}</div>
             )}
           </div>
         )))}
       </div>
-      <button onClick={initBoard} style={{ marginTop: '20px', padding: '10px 20px', borderRadius: '5px', cursor: 'pointer', backgroundColor: '#fff', border: '1px solid #333' }}>Yeni Oyun</button>
+      <button onClick={initBoard} style={{ marginTop: '20px', padding: '10px 20px', cursor: 'pointer' }}>Yeni Oyun</button>
     </div>
   );
 };
