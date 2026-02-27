@@ -1,0 +1,23 @@
+{
+  "name": "Patnos Dama",
+  "short_name": "PatnosDama",
+  "description": "Patnos Daması - Strateji ve Zeka Oyunu",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#000000",
+  "theme_color": "#121212",
+  "icons": [
+    {
+      "src": "https://static.wixstatic.com/media/7e2174_b122c1a32e4b44acbbfffe72fcc03742~mv2.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "https://static.wixstatic.com/media/7e2174_b122c1a32e4b44acbbfffe72fcc03742~mv2.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
