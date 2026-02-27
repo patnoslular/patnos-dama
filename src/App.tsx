@@ -1,321 +1,221 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
 import React, { useState, useEffect, useCallback } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
-import { GameState, Player, Difficulty, Language, Move } from './types';
-import { TRANSLATIONS, BOARD_SIZE } from './constants';
-import { createInitialBoard, getValidMoves, applyMove } from './logic/damaLogic';
-import { getAIMove } from './logic/aiLogic';
-import { Board } from './components/Board';
-import { Menu } from './components/Menu';
-import { Timer, User, Cpu, RotateCcw, ChevronLeft, Trophy } from 'lucide-react';
+import Confetti from 'react-confetti';
 
-const PLAYER_TIME_LIMIT = 120;
+// Ses Efektleri
+const moveSound = new Audio('https://assets.mixkit.co/active_storage/sfx/2571/2571-preview.mp3');
+const captureSound = new Audio('https://assets.mixkit.co/active_storage/sfx/2568/2568-preview.mp3');
 
-export default function App() {
-  const [state, setState] = useState<GameState>({
-    board: createInitialBoard(),
-    currentPlayer: 'blue',
-    winner: null,
-    status: 'menu',
-    playerName: '',
-    difficulty: 'medium',
-    language: 'tr',
-    timeLeft: PLAYER_TIME_LIMIT,
-    lastMove: null,
-    history: [],
-  });
+const BOARD_SIZE = 8;
 
-  const [validMoves, setValidMoves] = useState<Move[]>([]);
-  const [isAnimating, setIsAnimating] = useState(false);
+type Player = 'white' | 'black';
+type Piece = { player: Player; isDama: boolean; id: number };
+type Board = (Piece | null)[][];
+
+const App: React.FC = () => {
+  const [board, setBoard] = useState<Board>([]);
+  const [turn, setTurn] = useState<Player>('white');
+  const [selected, setSelected] = useState<[number, number] | null>(null);
+  const [winner, setWinner] = useState<Player | null>(null);
+  const [lastMove, setLastMove] = useState<[number, number] | null>(null);
+  const [windowSize, setWindowSize] = useState({ width: window.innerWidth, height: window.innerHeight });
 
   useEffect(() => {
-    if (state.status === 'playing' && !state.winner) {
-      setValidMoves(getValidMoves(state.board, state.currentPlayer));
-    }
-  }, [state.board, state.currentPlayer, state.status, state.winner]);
+    const handleResize = () => setWindowSize({ width: window.innerWidth, height: window.innerHeight });
+    window.addEventListener('resize', handleResize);
+    initBoard();
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
-  const t = TRANSLATIONS[state.language];
-
-  // Timer Logic
-  useEffect(() => {
-    let interval: any;
-    if (state.status === 'playing' && !state.winner && state.currentPlayer === 'blue') {
-      interval = setInterval(() => {
-        setState(prev => {
-          if (prev.timeLeft <= 1) {
-            return { ...prev, winner: 'yellow' }; // Time out
-          }
-          return { ...prev, timeLeft: prev.timeLeft - 1 };
-        });
-      }, 1000);
-    }
-    return () => clearInterval(interval);
-  }, [state.status, state.winner, state.currentPlayer]);
-
-  // AI Turn Logic
-  useEffect(() => {
-    if (state.status === 'playing' && state.currentPlayer === 'yellow' && !state.winner && !isAnimating) {
-      const aiMove = getAIMove(state);
-      if (aiMove) {
-        // AI moves "instantly" as requested, but a small delay for visual feedback is better
-        const timer = setTimeout(() => {
-          handleMove(aiMove);
-        }, 500);
-        return () => clearTimeout(timer);
-      } else {
-        setState(prev => ({ ...prev, winner: 'blue' }));
+  const initBoard = () => {
+    const newBoard: Board = Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(null));
+    let idCounter = 0;
+    for (let r = 1; r < 3; r++) {
+      for (let c = 0; c < BOARD_SIZE; c++) {
+        newBoard[r][c] = { player: 'black', isDama: false, id: idCounter++ };
       }
     }
-  }, [state.currentPlayer, state.status, state.winner, isAnimating]);
-
-  const handleStart = (name: string, difficulty: Difficulty, lang: Language) => {
-    setState({
-      ...state,
-      status: 'playing',
-      playerName: name,
-      difficulty,
-      language: lang,
-      board: createInitialBoard(),
-      currentPlayer: 'blue',
-      winner: null,
-      timeLeft: PLAYER_TIME_LIMIT,
-      lastMove: null,
-      history: [],
-    });
+    for (let r = 5; r < 7; r++) {
+      for (let c = 0; c < BOARD_SIZE; c++) {
+        newBoard[r][c] = { player: 'white', isDama: false, id: idCounter++ };
+      }
+    }
+    setBoard(newBoard);
+    setWinner(null);
+    setTurn('white');
+    setLastMove(null);
   };
 
-  const handleMove = async (move: Move) => {
-    setIsAnimating(true);
-    
-    let currentBoard = state.board;
-    const piece = currentBoard[move.from.row][move.from.col];
-    if (!piece) {
-      setIsAnimating(false);
+  const playSound = (type: 'move' | 'capture') => {
+    const sound = type === 'move' ? moveSound : captureSound;
+    sound.currentTime = 0;
+    sound.play().catch(() => {}); // Tarayıcı engellemesine karşı
+  };
+
+  const handleSquareClick = (r: number, c: number) => {
+    if (winner) return;
+
+    const piece = board[r][c];
+
+    if (piece && piece.player === turn) {
+      setSelected([r, c]);
       return;
     }
 
-    // If it's a capture move with a path
-    if (move.captures && move.path) {
-      let tempBoard = currentBoard.map(r => [...r]);
-      let currentPos = move.from;
-
-      for (let i = 0; i < move.captures.length; i++) {
-        const capturePos = move.captures[i];
-        const landingPos = move.path[i];
-
-        // 1. Move piece to landing position
-        const movingPiece = tempBoard[currentPos.row][currentPos.col];
-        tempBoard[currentPos.row][currentPos.col] = null;
-        
-        // Check for king promotion at each step
-        let type = movingPiece!.type;
-        if (movingPiece!.player === 'blue' && landingPos.row === 0) type = 'king';
-        if (movingPiece!.player === 'yellow' && landingPos.row === BOARD_SIZE - 1) type = 'king';
-
-        tempBoard[landingPos.row][landingPos.col] = {
-          ...movingPiece!,
-          row: landingPos.row,
-          col: landingPos.col,
-          type
-        };
-
-        // 2. Remove captured piece
-        tempBoard[capturePos.row][capturePos.col] = null;
-
-        // 3. Update state for visual feedback
-        setState(prev => ({ ...prev, board: tempBoard, lastMove: { from: currentPos, to: landingPos } }));
-        
-        currentPos = landingPos;
-        // Wait for animation
-        await new Promise(resolve => setTimeout(resolve, 400));
+    if (selected) {
+      const [sr, sc] = selected;
+      if (isValidMove(sr, sc, r, c)) {
+        executeMove(sr, sc, r, c);
       }
-      currentBoard = tempBoard;
-    } else {
-      // Regular move
-      currentBoard = applyMove(state.board, move);
-      setState(prev => ({ ...prev, board: currentBoard, lastMove: move }));
     }
-
-    const nextPlayer = state.currentPlayer === 'blue' ? 'yellow' : 'blue';
-    const nextMoves = getValidMoves(currentBoard, nextPlayer);
-    
-    // Repetition check
-    const boardHash = currentBoard.map(row => row.map(p => p ? `${p.player}-${p.type}` : 'empty').join(',')).join('|');
-    const newHistory = [...state.history, boardHash];
-    const repetitions = newHistory.filter(h => h === boardHash).length;
-
-    setState(prev => ({
-      ...prev,
-      currentPlayer: nextPlayer,
-      timeLeft: PLAYER_TIME_LIMIT,
-      history: newHistory,
-      winner: repetitions >= 3 ? 'draw' : (nextMoves.length === 0 ? prev.currentPlayer : null),
-    }));
-
-    setIsAnimating(false);
   };
 
-  if (state.status === 'menu') {
-    return (
-      <Menu 
-        onStart={handleStart} 
-        language={state.language} 
-        setLanguage={(lang) => setState(prev => ({ ...prev, language: lang }))} 
-      />
-    );
-  }
+  const isValidMove = (sr: number, sc: number, tr: number, tc: number) => {
+    if (board[tr][tc] !== null) return false;
+    const piece = board[sr][sc];
+    if (!piece) return false;
+
+    const rowDiff = tr - sr;
+    const colDiff = tc - sc;
+    const absRowDiff = Math.abs(rowDiff);
+    const absColDiff = Math.abs(colDiff);
+
+    if (piece.isDama) {
+      if (sr !== tr && sc !== tc) return false;
+      const rStep = sr === tr ? 0 : rowDiff / absRowDiff;
+      const cStep = sc === tc ? 0 : colDiff / absColDiff;
+      let piecesInBetween = 0;
+      let currR = sr + rStep;
+      let currC = sc + cStep;
+      while (currR !== tr || currC !== tc) {
+        if (board[currR][currC]) {
+          if (board[currR][currC]?.player === piece.player) return false;
+          piecesInBetween++;
+        }
+        currR += rStep;
+        currC += cStep;
+      }
+      return piecesInBetween <= 1;
+    } else {
+      const forward = piece.player === 'white' ? -1 : 1;
+      if (absColDiff + absRowDiff === 1) {
+        return rowDiff === forward || absColDiff === 1 && rowDiff === 0;
+      }
+      if ((absRowDiff === 2 && absColDiff === 0 && rowDiff === 2 * forward) || (absColDiff === 2 && absRowDiff === 0)) {
+        const midR = sr + rowDiff / 2;
+        const midC = sc + colDiff / 2;
+        return board[midR][midC] !== null && board[midR][midC]?.player !== piece.player;
+      }
+    }
+    return false;
+  };
+
+  const executeMove = (sr: number, sc: number, tr: number, tc: number) => {
+    const newBoard = board.map(row => [...row]);
+    const piece = { ...newBoard[sr][sc]! };
+    let captured = false;
+
+    const rowDiff = tr - sr;
+    const colDiff = tc - sc;
+
+    if (Math.abs(rowDiff) >= 2 || Math.abs(colDiff) >= 2) {
+      const rStep = rowDiff === 0 ? 0 : rowDiff / Math.abs(rowDiff);
+      const cStep = colDiff === 0 ? 0 : colDiff / Math.abs(colDiff);
+      let currR = sr + rStep;
+      let currC = sc + cStep;
+      while (currR !== tr || currC !== tc) {
+        if (newBoard[currR][currC]) {
+          newBoard[currR][currC] = null;
+          captured = true;
+        }
+        currR += rStep;
+        currC += cStep;
+      }
+    }
+
+    if ((piece.player === 'white' && tr === 0) || (piece.player === 'black' && tr === BOARD_SIZE - 1)) {
+      piece.isDama = true;
+    }
+
+    newBoard[tr][tc] = piece;
+    newBoard[sr][sc] = null;
+
+    setBoard(newBoard);
+    setLastMove([tr, tc]);
+    setSelected(null);
+    setTurn(turn === 'white' ? 'black' : 'white');
+    playSound(captured ? 'capture' : 'move');
+    checkWinner(newBoard);
+  };
+
+  const checkWinner = (currentBoard: Board) => {
+    const counts = { white: 0, black: 0 };
+    currentBoard.forEach(row => row.forEach(p => { if (p) counts[p.player]++; }));
+    if (counts.white === 0) setWinner('black');
+    else if (counts.black === 0) setWinner('white');
+  };
 
   return (
-    <div className="min-h-screen bg-black flex flex-col font-sans text-white">
-      {/* Header */}
-      <header className="bg-[#121212] border-b border-white/5 px-4 py-3 flex items-center justify-between sticky top-0 z-30 shadow-lg">
-        <button 
-          onClick={() => setState(prev => ({ ...prev, status: 'menu' }))}
-          className="p-2 hover:bg-white/5 rounded-full transition-colors"
-        >
-          <ChevronLeft className="w-6 h-6" />
-        </button>
-        <div className="flex items-center gap-3">
-          <img 
-            src="https://static.wixstatic.com/media/7e2174_63be697a3dd64d06b050165599965a9a~mv2.png" 
-            alt="Logo" 
-            className="w-10 h-10 object-contain"
-            referrerPolicy="no-referrer"
-          />
-          <div className="flex flex-col">
-            <h1 className="text-xl font-black tracking-tighter italic leading-none flex gap-1">
-              <span className="text-[#3B82F6]">PATNOS</span>
-              <span className="text-white">DAMA</span>
-            </h1>
-            <div className="flex items-center gap-2 mt-0.5">
-              <div className="h-[1px] w-3 bg-white/20" />
-              <span className="text-[9px] font-black text-[#3B82F6] uppercase tracking-[0.2em]">
-                {t[state.difficulty]}
-              </span>
-              <div className="h-[1px] w-3 bg-white/20" />
-            </div>
-          </div>
-        </div>
-        <button 
-          onClick={() => handleStart(state.playerName, state.difficulty, state.language)}
-          className="p-2 hover:bg-white/5 rounded-full transition-colors"
-        >
-          <RotateCcw className="w-5 h-5 text-white/40" />
-        </button>
-      </header>
+    <div style={{
+      width: '100vw', height: '100vh', display: 'flex', flexDirection: 'column',
+      alignItems: 'center', justifyContent: 'center', backgroundColor: '#1a1a1a', fontFamily: 'Arial'
+    }}>
+      {winner && <Confetti width={windowSize.width} height={windowSize.height} />}
+      
+      <h2 style={{ color: 'white', marginBottom: '10px' }}>
+        {winner ? `Tebrikler! ${winner === 'white' ? 'Beyaz' : 'Siyah'} Kazandı!` : `Sıra: ${turn === 'white' ? 'Beyaz' : 'Siyah'}`}
+      </h2>
 
-      <main className="flex-1 flex flex-col items-center justify-center p-2 sm:p-4 gap-4 sm:gap-6 max-w-2xl mx-auto w-full">
-        
-        {/* Players Info */}
-        <div className="w-full grid grid-cols-2 gap-4">
-          {/* Player */}
-          <div className={`
-            p-4 rounded-2xl border-2 transition-all duration-300 flex items-center gap-3
-            ${state.currentPlayer === 'blue' ? 'bg-[#121212] border-[#3B82F6] shadow-lg scale-105' : 'bg-white/5 border-transparent opacity-40'}
-          `}>
-            <div className="w-10 h-10 rounded-full bg-[#2563EB] flex items-center justify-center text-white">
-              <User className="w-6 h-6" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-bold text-white/40 uppercase truncate">{t.playerLabel}</p>
-              <div className="flex items-center gap-1 text-[#3B82F6] font-black">
-                <Timer className="w-4 h-4" />
-                <span className={state.timeLeft < 20 ? 'text-red-500 animate-pulse' : ''}>
-                  {state.timeLeft}s
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* AI */}
-          <div className={`
-            p-4 rounded-2xl border-2 transition-all duration-300 flex items-center gap-3
-            ${state.currentPlayer === 'yellow' ? 'bg-[#121212] border-[#FACC15] shadow-lg scale-105' : 'bg-white/5 border-transparent opacity-40'}
-          `}>
-            <div className="w-10 h-10 rounded-full bg-[#FACC15] flex items-center justify-center text-white">
-              <Cpu className="w-6 h-6" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-bold text-white/40 uppercase truncate">Patnos Dama</p>
-              <p className="text-sm font-black text-[#FACC15]">
-                {state.currentPlayer === 'yellow' ? t.thinking : t.waiting}
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* Game Board */}
-        <Board 
-          board={state.board}
-          onMove={handleMove}
-          validMoves={validMoves}
-          lastMove={state.lastMove}
-          currentPlayer={state.currentPlayer}
-          isAnimating={isAnimating}
-        />
-
-        {/* Status Bar */}
-        <div className="w-full bg-[#121212] p-4 rounded-2xl shadow-sm border border-white/5 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className={`w-3 h-3 rounded-full ${state.currentPlayer === 'blue' ? 'bg-[#3B82F6]' : 'bg-[#FACC15]'} animate-pulse`} />
-            <span className="font-bold text-white/60">{t.turn} {state.currentPlayer === 'blue' ? t.blue : t.yellow}</span>
-          </div>
-          <div className="text-xs font-bold text-white/30 uppercase">
-            {state.difficulty} Mode
-          </div>
-        </div>
-      </main>
-
-      {/* Winner Modal */}
-      <AnimatePresence>
-        {state.winner && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-4"
-          >
-            <motion.div
-              initial={{ scale: 0.8, y: 20 }}
-              animate={{ scale: 1, y: 0 }}
-              className="bg-white p-10 rounded-[40px] shadow-2xl text-center max-w-sm w-full"
+      <div style={{
+        display: 'grid', gridTemplateColumns: `repeat(${BOARD_SIZE}, 1fr)`,
+        width: 'min(90vw, 400px)', height: 'min(90vw, 400px)', border: '4px solid #333'
+      }}>
+        {board.map((row, r) => row.map((piece, c) => {
+          const isSelected = selected?.[0] === r && selected?.[1] === c;
+          const isLastMove = lastMove?.[0] === r && lastMove?.[1] === c;
+          
+          return (
+            <div
+              key={`${r}-${c}`}
+              onClick={() => handleSquareClick(r, c)}
+              style={{
+                backgroundColor: (r + c) % 2 === 0 ? '#f0d9b5' : '#b58863',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                cursor: 'pointer', position: 'relative'
+              }}
             >
-              <div className="mb-6 inline-flex flex-col items-center">
-                <img 
-                  src="https://static.wixstatic.com/media/7e2174_63be697a3dd64d06b050165599965a9a~mv2.png" 
-                  alt="Patnos Logo" 
-                  className="w-32 h-32 object-contain mb-4"
-                  referrerPolicy="no-referrer"
-                />
-                <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">
-                  İzmir Patnoslular Derneği Yapımıdır
-                </p>
-              </div>
-              <h2 className="text-3xl font-black text-stone-900 mb-2">{t.winner}</h2>
-              <p className={`text-2xl font-black mb-8 ${state.winner === 'blue' ? 'text-blue-600' : 'text-yellow-600'}`}>
-                {state.winner === 'blue' ? state.playerName : 'Patnos Dama'}
-              </p>
-              <div className="flex flex-col gap-3">
-                <button
-                  onClick={() => handleStart(state.playerName, state.difficulty, state.language)}
-                  className="w-full bg-blue-600 text-white py-5 rounded-2xl font-black text-lg shadow-xl shadow-blue-200 hover:bg-blue-700 transition-all active:scale-95"
-                >
-                  {t.playAgain}
-                </button>
-                <button
-                  onClick={() => setState(prev => ({ ...prev, status: 'menu' }))}
-                  className="w-full bg-stone-100 text-stone-600 py-4 rounded-2xl font-bold hover:bg-stone-200 transition-all"
-                >
-                  {t.backToMenu}
-                </button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+              {piece && (
+                <div style={{
+                  width: '80%', height: '80%', borderRadius: '50%',
+                  backgroundColor: piece.player === 'white' ? '#fff' : '#000',
+                  border: isSelected ? '4px solid #3498db' : '2px solid #555',
+                  boxShadow: '0 4px 6px rgba(0,0,0,0.3)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  color: piece.player === 'white' ? '#000' : '#fff',
+                  fontSize: '20px', fontWeight: 'bold',
+                  animation: isLastMove ? 'blink 0.5s step-end 3' : 'none',
+                  // Pürüzsüz hareket için transition kaldırıldı, anlık tepki veriyor
+                }}>
+                  {piece.isDama ? 'D' : ''}
+                </div>
+              )}
+              <style>{`
+                @keyframes blink { 
+                  50% { opacity: 0.3; transform: scale(1.1); } 
+                }
+              `}</style>
+            </div>
+          );
+        }))}
+      </div>
+
+      <button onClick={initBoard} style={{
+        marginTop: '20px', padding: '10px 20px', fontSize: '16px',
+        backgroundColor: '#3498db', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer'
+      }}>
+        Yeni Oyun
+      </button>
     </div>
   );
-} 
+};
+
+export default App;
